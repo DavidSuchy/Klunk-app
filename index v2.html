@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#0B0B0C" />
+<title>Klunk — AI Diagnostika</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%;width:100%;overflow:hidden}
+  body{font-family:"Inter",-apple-system,sans-serif;-webkit-font-smoothing:antialiased;background:#0B0B0C;color:#FAFAFA}
+  button{font-family:inherit;cursor:pointer}
+  input,select{font-family:inherit}
+  ::-webkit-scrollbar{display:none}
+  *{scrollbar-width:none}
+  select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239A9A9E' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+<script type="text/babel">
+const{useState,useEffect,useRef,createContext,useContext,useCallback}=React;
+
+// ═══ SUPABASE ═══
+const SB="https://qwsilzjbmxqovtitgqoc.supabase.co";
+const AK="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3c2lsempibXhxb3Z0aXRncW9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxNDUwNTMsImV4cCI6MjA5MTcyMTA1M30.mpZQ9MDKRT1ALuHz5G5IvSMAZEOo52KCkvdVYbK-McA";
+function hdr(token){return{apikey:AK,Authorization:`Bearer ${token||AK}`,"Content-Type":"application/json"}}
+async function sbGet(t,p="",token){try{const r=await fetch(`${SB}/rest/v1/${t}?${p}`,{headers:hdr(token)});return r.ok?r.json():[];}catch{return[];}}
+async function sbPost(t,body,token){try{const r=await fetch(`${SB}/rest/v1/${t}`,{method:"POST",headers:{...hdr(token),Prefer:"return=representation"},body:JSON.stringify(body)});return r.ok?r.json():null;}catch{return null;}}
+async function sbDelete(t,p,token){try{await fetch(`${SB}/rest/v1/${t}?${p}`,{method:"DELETE",headers:hdr(token)});}catch{}}
+async function sbRPC(fn,body,token){try{const r=await fetch(`${SB}/rest/v1/rpc/${fn}`,{method:"POST",headers:hdr(token),body:JSON.stringify(body)});return r.ok?r.json():[];}catch{return[];}}
+async function sbAuth(action,email,password){
+  const ep=action==='signup'?'/auth/v1/signup':'/auth/v1/token?grant_type=password';
+  const r=await fetch(`${SB}${ep}`,{method:"POST",headers:{"Content-Type":"application/json",apikey:AK},body:JSON.stringify({email,password})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error_description||d.msg||d.message||'Chyba');return d;
+}
+
+// ═══ TOKENS ═══
+const K={accent:'#E8552B',accentSoft:'rgba(232,85,43,0.12)',accentGlow:'rgba(232,85,43,0.35)',bg:'#0B0B0C',card:'#151517',border:'rgba(255,255,255,0.06)',borderStrong:'rgba(255,255,255,0.12)',text:'#FAFAFA',textMuted:'#9A9A9E',textSubtle:'#6A6A6E',chip:'#1F1F22',success:'#35C38B',warning:'#F0B955',danger:'#FF6A5A'};
+const sevMap={safe_to_drive:{l:'Bezpečné na jazdu',c:K.success,i:'✓'},drive_to_shop_soon:{l:'Čoskoro do servisu',c:K.warning,i:'⚠'},drive_to_shop_now:{l:'Ihneď do servisu',c:'#f97316',i:'⚠'},stop_driving:{l:'Zastavte!',c:K.danger,i:'✕'}};
+const diffMap={'1_easy':'Ľahké','2_moderate':'Stredné','3_advanced':'Pokročilé','4_expert':'Expert','5_shop_only':'Len servis'};
+const diffLvl={'1_easy':1,'2_moderate':2,'3_advanced':3,'4_expert':4,'5_shop_only':5};
+
+// ═══ ICONS ═══
+function I({name,size=24,color='currentColor',sw=1.75}){
+  const p={width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:color,strokeWidth:sw,strokeLinecap:'round',strokeLinejoin:'round'};
+  const d={
+    sparkle:<><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></>,
+    chevron:<path d="m9 6 6 6-6 6"/>,chevronLeft:<path d="m15 6-6 6 6 6"/>,check:<path d="m5 13 4 4 10-10"/>,
+    x:<path d="M18 6 6 18M6 6l12 12"/>,bell:<><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></>,
+    plus:<path d="M12 5v14M5 12h14"/>,home:<><path d="M3 12 12 4l9 8"/><path d="M5 10v10h14V10"/></>,
+    history:<><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/></>,
+    user:<><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></>,
+    mapPin:<><path d="M12 21s-7-6.2-7-12a7 7 0 1 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></>,
+    scan:<path d="M3 8V6a2 2 0 0 1 2-2h2M17 4h2a2 2 0 0 1 2 2v2M21 16v2a2 2 0 0 1-2 2h-2M7 20H5a2 2 0 0 1-2-2v-2M7 12h10"/>,
+    gauge:<><path d="M12 14 17 9"/><circle cx="12" cy="14" r="1.5"/><path d="M4 16a9 9 0 1 1 16 0"/></>,
+    cpu:<><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></>,
+    wrench:<path d="M14.7 6.3a4 4 0 0 0 5.4 5.4L21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.4-3.4l3-3-1.4-1.4 3-3 1.4 1.4 3-3A9 9 0 0 1 12 3l.3.9a4 4 0 0 0 2.4 2.4z"/>,
+    car:<><path d="M3 13l2-5a2 2 0 0 1 1.8-1.3h10.4A2 2 0 0 1 19 8l2 5v5a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1v-1H7v1a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><circle cx="7.5" cy="14.5" r="1.2"/><circle cx="16.5" cy="14.5" r="1.2"/></>,
+    logout:<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
+    trash:<><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></>,
+    star:<path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentColor"/>,
+    clock:<><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+    phone:<><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.61.68 2.36a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.75.32 1.55.55 2.36.68A2 2 0 0 1 22 16.92z"/></>,
+  };
+  return <svg {...p}>{d[name]||null}</svg>;
+}
+function DiffBars({level=3}){return <div style={{display:'flex',gap:3,alignItems:'flex-end'}}>{Array.from({length:5}).map((_,i)=><div key={i} style={{width:5,height:7+i*2,borderRadius:1,background:i<level?K.accent:K.chip}}/>)}</div>}
+
+// ═══ AUTH CONTEXT ═══
+const AuthCtx=createContext(null);
+function AuthProvider({children}){
+  const[user,setUser]=useState(null);const[token,setToken]=useState(null);const[loading,setLoading]=useState(true);
+  useEffect(()=>{const s=localStorage.getItem('klunk_session');if(s){try{const d=JSON.parse(s);setUser(d.user);setToken(d.access_token);}catch{}}setLoading(false);},[]);
+  const login=async(email,pw)=>{const d=await sbAuth('login',email,pw);setUser(d.user);setToken(d.access_token);localStorage.setItem('klunk_session',JSON.stringify(d));};
+  const signup=async(email,pw)=>{const d=await sbAuth('signup',email,pw);if(d.user&&d.access_token){setUser(d.user);setToken(d.access_token);localStorage.setItem('klunk_session',JSON.stringify(d));}return d;};
+  const logout=()=>{setUser(null);setToken(null);localStorage.removeItem('klunk_session');};
+  return <AuthCtx.Provider value={{user,token,loading,login,signup,logout}}>{children}</AuthCtx.Provider>;
+}
+
+// ═══ AUTH SCREEN ═══
+function AuthScreen(){
+  const{login,signup}=useContext(AuthCtx);
+  const[mode,setMode]=useState('login');const[email,setEmail]=useState('');const[pw,setPw]=useState('');const[err,setErr]=useState('');const[msg,setMsg]=useState('');const[busy,setBusy]=useState(false);
+  const submit=async()=>{
+    setErr('');setMsg('');if(!email||!pw)return setErr('Vyplň email a heslo');if(pw.length<6)return setErr('Heslo musí mať aspoň 6 znakov');
+    setBusy(true);try{
+      if(mode==='login'){await login(email,pw);}
+      else{const d=await signup(email,pw);if(!d.access_token)setMsg('Skontroluj email pre potvrdenie registrácie.');}
+    }catch(e){setErr(e.message);}setBusy(false);
+  };
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',justifyContent:'center',padding:'0 24px',background:K.bg,maxWidth:430,margin:'0 auto'}}>
+      <div style={{width:56,height:56,borderRadius:14,background:K.accent,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:24}}><I name="wrench" size={28} color="#fff" sw={2.2}/></div>
+      <div style={{fontSize:32,fontWeight:700,letterSpacing:-1,lineHeight:1.05,marginBottom:8}}>{mode==='login'?'Prihlásenie':'Registrácia'}</div>
+      <div style={{fontSize:15,color:K.textMuted,marginBottom:32}}>{mode==='login'?'Vitaj späť v Klunk':'Vytvor si účet a začni diagnostikovať'}</div>
+      <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" style={{width:'100%',height:52,borderRadius:14,border:`1px solid ${K.borderStrong}`,background:K.chip,color:K.text,padding:'0 16px',fontSize:15,marginBottom:12,outline:'none'}}/>
+      <input value={pw} onChange={e=>setPw(e.target.value)} placeholder="Heslo" type="password" onKeyDown={e=>e.key==='Enter'&&submit()} style={{width:'100%',height:52,borderRadius:14,border:`1px solid ${K.borderStrong}`,background:K.chip,color:K.text,padding:'0 16px',fontSize:15,marginBottom:16,outline:'none'}}/>
+      {err&&<div style={{color:K.danger,fontSize:13,marginBottom:12}}>{err}</div>}
+      {msg&&<div style={{color:K.success,fontSize:13,marginBottom:12}}>{msg}</div>}
+      <button onClick={submit} disabled={busy} style={{width:'100%',height:52,borderRadius:26,border:'none',background:K.accent,color:'#fff',fontSize:16,fontWeight:600,opacity:busy?0.6:1}}>{busy?'...':(mode==='login'?'Prihlásiť sa':'Vytvoriť účet')}</button>
+      <button onClick={()=>{setMode(mode==='login'?'signup':'login');setErr('');setMsg('');}} style={{marginTop:16,background:'none',border:'none',color:K.textMuted,fontSize:14}}>{mode==='login'?'Nemáš účet? Registrovať sa':'Už máš účet? Prihlásiť sa'}</button>
+    </div>
+  );
+}
+
+// ═══ ADD CAR MODAL ═══
+function AddCarModal({onClose,onAdd,token}){
+  const[makes,setMakes]=useState([]);const[models,setModels]=useState([]);const[gens,setGens]=useState([]);const[engines,setEngines]=useState([]);
+  const[make,setMake]=useState('');const[model,setModel]=useState('');const[gen,setGen]=useState('');const[vid,setVid]=useState('');
+  const[allV,setAllV]=useState([]);const[allE,setAllE]=useState({});
+  useEffect(()=>{
+    (async()=>{
+      const v=await sbGet("vehicles","select=*",token);const e=await sbGet("engines","select=*",token);
+      const em={};(e||[]).forEach(x=>{em[x.id]=x;});setAllE(em);setAllV(v||[]);
+      setMakes([...new Set((v||[]).map(x=>x.make))].sort());
+    })();
+  },[]);
+  useEffect(()=>{if(make){const m=[...new Set(allV.filter(v=>v.make===make).map(v=>v.model))].sort();setModels(m);setModel('');setGen('');setVid('');setGens([]);setEngines([]);}else{setModels([])}},[make]);
+  useEffect(()=>{if(model){const g=[...new Set(allV.filter(v=>v.make===make&&v.model===model).map(v=>v.generation))].sort();setGens(g);setGen('');setVid('');setEngines([]);}else{setGens([])}},[model]);
+  useEffect(()=>{if(gen){const veh=allV.filter(v=>v.make===make&&v.model===model&&v.generation===gen);const seen=new Set();const engs=veh.filter(v=>{const k=v.engine_id;if(seen.has(k))return false;seen.add(k);return true;}).map(v=>({vid:v.id,engine:allE[v.engine_id]})).filter(x=>x.engine);setEngines(engs);setVid('');}else{setEngines([])}},[gen]);
+
+  const selStyle={width:'100%',height:48,borderRadius:12,border:`1px solid ${K.borderStrong}`,background:K.chip,color:K.text,padding:'0 16px',fontSize:14,marginBottom:12,outline:'none',paddingRight:36};
+
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:50,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(8px)',display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div style={{width:'100%',maxWidth:430,background:K.card,borderRadius:'24px 24px 0 0',padding:'24px 20px 40px',maxHeight:'85vh',overflowY:'auto'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+          <div style={{fontSize:20,fontWeight:700,color:K.text}}>Pridať auto</div>
+          <button onClick={onClose} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.text}}><I name="x" size={18}/></button>
+        </div>
+        <div style={{fontSize:13,color:K.textMuted,marginBottom:20}}>Vyber značku, model a motor. Podľa toho ti Klunk nájde presné chyby.</div>
+        <select value={make} onChange={e=>setMake(e.target.value)} style={selStyle}><option value="">Značka</option>{makes.map(m=><option key={m} value={m}>{m}</option>)}</select>
+        {make&&<select value={model} onChange={e=>setModel(e.target.value)} style={selStyle}><option value="">Model</option>{models.map(m=><option key={m} value={m}>{m}</option>)}</select>}
+        {model&&<select value={gen} onChange={e=>setGen(e.target.value)} style={selStyle}><option value="">Generácia</option>{gens.map(g=><option key={g} value={g}>{g}</option>)}</select>}
+        {gen&&engines.length>0&&<select value={vid} onChange={e=>setVid(e.target.value)} style={selStyle}><option value="">Motor</option>{engines.map(x=><option key={x.vid} value={x.vid}>{x.engine.code} · {x.engine.displacement_cc}cc · {x.engine.power_hp}hp · {x.engine.fuel_type==='petrol'?'Benzín':'Diesel'}</option>)}</select>}
+        <button onClick={()=>{if(vid){const v=allV.find(x=>x.id===parseInt(vid));const e=allE[v.engine_id];onAdd({vehicle_id:parseInt(vid),make:v.make,model:v.model,generation:v.generation,engine_id:e.id,engine_code:e.code,engine_cc:e.displacement_cc,engine_hp:e.power_hp,fuel:e.fuel_type});}}} disabled={!vid} style={{width:'100%',height:52,borderRadius:26,border:'none',background:vid?K.accent:K.chip,color:vid?'#fff':K.textSubtle,fontSize:16,fontWeight:600,marginTop:8}}>Pridať auto</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══ QUESTIONS ═══
+const QS=[
+  {id:6,q:"Aká farba dymu ide z výfuku?",opts:["Žiadny viditeľný dym","Biely dym","Čierny dym","Modrý/sivý dym"]},
+  {id:1,q:"Kedy sa problém prejavuje?",opts:["Za studena","Za tepla","Vždy","Občas/náhodne"]},
+  {id:7,q:"Svieti kontrolka motora?",opts:["Nesvieti","Svieti stále","Bliká","Svietila a zhasla"]},
+  {id:3,q:"Nastal problém náhle alebo postupne?",opts:["Náhle","Postupne sa zhoršoval","Neviem"]},
+];
+
+// ═══ SHOPS DATA (Košice) ═══
+const SHOPS=[
+  {name:'AutoServis Juh Košice',addr:'Južná trieda 82, Košice',rating:4.8,reviews:214,dist:'1.2 km',price:'Od 180 €',time:'Zajtra 08:00',tag:'Najlepšie hodnotený',lat:48.716,lng:21.259},
+  {name:'TDI Centrum Košice',addr:'Moldavská cesta 8, Košice',rating:4.7,reviews:156,dist:'2.8 km',price:'Od 220 €',time:'Dnes 15:00',tag:'Špecialista TDI',lat:48.706,lng:21.246},
+  {name:'Autoopravovňa Ťahanovce',addr:'Ťahanovská 12, Košice',rating:4.5,reviews:89,dist:'4.1 km',price:'Od 160 €',time:'Str 09:00',lat:48.741,lng:21.265},
+  {name:'BestCar Service',addr:'Vstupný areál U.S.Steel, Košice',rating:4.6,reviews:203,dist:'5.5 km',price:'Od 200 €',time:'Zajtra 10:00',lat:48.690,lng:21.230},
+  {name:'AutoKlinika Východ',addr:'Alejová 4, Košice',rating:4.9,reviews:67,dist:'3.2 km',price:'Od 250 €',time:'Dnes 16:30',tag:'Premium servis',lat:48.725,lng:21.275},
+];
+
+// ═══ MAIN APP ═══
+function App(){
+  const{user,token,loading:authLoading,logout}=useContext(AuthCtx);
+  const[tab,setTab]=useState('home');
+  const[screen,setScreen]=useState(null); // null=tab, 'diagnose','results','addcar','shops','obd'
+  const[cars,setCars]=useState([]);const[activeCar,setActiveCar]=useState(null);
+  const[results,setResults]=useState([]);const[history,setHistory]=useState([]);
+  const[loadingData,setLoadingData]=useState(true);
+
+  // Load user cars
+  const loadCars=useCallback(async()=>{
+    if(!token)return;
+    const uc=await sbGet("user_cars","select=*,vehicles(*,engines(*))",token);
+    const list=(uc||[]).map(c=>({
+      id:c.id,vehicle_id:c.vehicle_id,make:c.vehicles.make,model:c.vehicles.model,generation:c.vehicles.generation,
+      engine_id:c.vehicles.engines.id,engine_code:c.vehicles.engines.code,engine_cc:c.vehicles.engines.displacement_cc,
+      engine_hp:c.vehicles.engines.power_hp,fuel:c.vehicles.engines.fuel_type,
+    }));
+    setCars(list);if(list.length>0&&!activeCar)setActiveCar(list[0]);
+    setLoadingData(false);
+  },[token]);
+
+  const loadHistory=useCallback(async()=>{
+    if(!token)return;
+    const h=await sbGet("diagnosis_history","select=*&order=created_at.desc&limit=20",token);
+    setHistory(h||[]);
+  },[token]);
+
+  useEffect(()=>{if(token){loadCars();loadHistory();} else setLoadingData(false);},[token]);
+
+  async function addCar(car){
+    await sbPost("user_cars",{user_id:user.id,vehicle_id:car.vehicle_id},token);
+    await loadCars();setScreen(null);
+  }
+  async function removeCar(id){
+    await sbDelete("user_cars",`id=eq.${id}`,token);
+    const newCars=cars.filter(c=>c.id!==id);setCars(newCars);
+    if(activeCar?.id===id)setActiveCar(newCars[0]||null);
+  }
+
+  async function handleResults(res){
+    setResults(res);setScreen('results');
+    if(res.length>0&&activeCar){
+      // Auto-save to history (max 20)
+      const count=history.length;
+      if(count>=20){const oldest=history[history.length-1];await sbDelete("diagnosis_history",`id=eq.${oldest.id}`,token);}
+      await sbPost("diagnosis_history",{
+        user_id:user.id,vehicle_id:activeCar.vehicle_id,engine_id:activeCar.engine_id,
+        symptoms:[],answers:{},top_fault_name:res[0].name_sk,top_fault_severity:res[0].severity,
+        top_fault_score:res[0].suspicion_score,all_results:res,
+      },token);
+      loadHistory();
+    }
+  }
+
+  if(authLoading||loadingData)return <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16,background:K.bg}}><div style={{width:56,height:56,borderRadius:14,background:K.accent,display:'flex',alignItems:'center',justifyContent:'center'}}><I name="wrench" size={28} color="#fff" sw={2.2}/></div><div style={{fontSize:16,fontWeight:600}}>Načítavam...</div></div>;
+  if(!user)return <AuthScreen/>;
+
+  // ── Tab content ──
+  const tabContent={
+    home:(
+      <div style={{flex:1,overflowY:'auto',paddingBottom:100}}>
+        {/* Header */}
+        <div style={{padding:'16px 20px 8px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:40,height:40,borderRadius:12,background:K.accent,display:'flex',alignItems:'center',justifyContent:'center'}}><I name="wrench" size={20} color="#fff" sw={2.2}/></div>
+            <div><div style={{fontSize:12,color:K.textMuted}}>Klunk AI</div><div style={{fontSize:15,fontWeight:600,letterSpacing:-0.2}}>Diagnostika</div></div>
+          </div>
+        </div>
+
+        {/* Cars + Add */}
+        <div style={{padding:'16px 16px 0'}}>
+          <div style={{display:'flex',gap:12,overflowX:'auto',paddingBottom:8,scrollSnapType:'x mandatory'}}>
+            {cars.map(c=>(
+              <div key={c.id} onClick={()=>setActiveCar(c)} style={{
+                minWidth:260,scrollSnapAlign:'start',borderRadius:20,padding:18,cursor:'pointer',flexShrink:0,position:'relative',overflow:'hidden',
+                background:activeCar?.id===c.id?'#151517':K.card,border:activeCar?.id===c.id?`2px solid ${K.accent}`:`1px solid ${K.border}`,
+              }}>
+                {activeCar?.id===c.id&&<div style={{position:'absolute',top:-30,right:-30,width:120,height:120,borderRadius:120,background:`radial-gradient(closest-side,${K.accentGlow},transparent)`}}/>}
+                <div style={{fontSize:11,fontWeight:600,color:'rgba(255,255,255,0.5)',letterSpacing:0.6,textTransform:'uppercase'}}>{c.make}</div>
+                <div style={{fontSize:20,fontWeight:700,letterSpacing:-0.5,marginTop:4}}>{c.model} {c.generation}</div>
+                <div style={{fontSize:13,color:'rgba(255,255,255,0.6)',marginTop:2}}>{c.engine_code} · {c.engine_hp}hp · {c.fuel==='petrol'?'Benzín':'Diesel'}</div>
+                <button onClick={e=>{e.stopPropagation();removeCar(c.id);}} style={{position:'absolute',top:12,right:12,width:28,height:28,borderRadius:14,background:'rgba(255,255,255,0.08)',border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.textSubtle}}><I name="x" size={14}/></button>
+              </div>
+            ))}
+            {/* Add car button */}
+            <div onClick={()=>setScreen('addcar')} style={{
+              minWidth:120,scrollSnapAlign:'start',borderRadius:20,padding:18,cursor:'pointer',flexShrink:0,
+              border:`2px dashed ${K.borderStrong}`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:8,
+            }}>
+              <div style={{width:40,height:40,borderRadius:20,background:K.chip,display:'flex',alignItems:'center',justifyContent:'center'}}><I name="plus" size={20} color={K.textMuted}/></div>
+              <div style={{fontSize:13,fontWeight:600,color:K.textMuted}}>Pridať auto</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Diagnose CTA */}
+        {activeCar&&<div style={{padding:'16px 16px 0'}}>
+          <div onClick={()=>setScreen('diagnose')} style={{borderRadius:22,padding:20,background:K.accent,color:'#fff',display:'flex',alignItems:'center',gap:14,cursor:'pointer',boxShadow:`0 10px 30px -10px ${K.accentGlow}`}}>
+            <div style={{width:48,height:48,borderRadius:14,background:'rgba(255,255,255,0.18)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><I name="sparkle" size={24} color="#fff" sw={2.2}/></div>
+            <div style={{flex:1}}><div style={{fontSize:17,fontWeight:700,letterSpacing:-0.3}}>Diagnostikovať problém</div><div style={{fontSize:13,color:'rgba(255,255,255,0.8)',marginTop:2}}>AI sa pýta, ty odpovedáš</div></div>
+            <I name="chevron" size={22} color="#fff" sw={2.4}/>
+          </div>
+        </div>}
+
+        {/* Quick actions */}
+        <div style={{padding:'16px 16px 0',display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+          <div onClick={()=>setScreen('obd')} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:20,padding:16,cursor:'pointer'}}>
+            <div style={{width:36,height:36,borderRadius:10,background:K.chip,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12}}><I name="scan" size={18}/></div>
+            <div style={{fontSize:14,fontWeight:600}}>OBD kód</div><div style={{fontSize:12,color:K.textMuted,marginTop:2}}>Zadaj P-kód</div>
+          </div>
+          <div onClick={()=>setScreen('shops')} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:20,padding:16,cursor:'pointer'}}>
+            <div style={{width:36,height:36,borderRadius:10,background:K.chip,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:12}}><I name="mapPin" size={18}/></div>
+            <div style={{fontSize:14,fontWeight:600}}>Nájsť servis</div><div style={{fontSize:12,color:K.textMuted,marginTop:2}}>Košice · Okolie</div>
+          </div>
+        </div>
+
+        {!activeCar&&cars.length===0&&<div style={{padding:'40px 20px',textAlign:'center',color:K.textMuted}}>
+          <I name="car" size={48} color={K.textSubtle}/><div style={{fontSize:16,fontWeight:600,color:K.text,marginTop:16}}>Pridaj svoje prvé auto</div><div style={{fontSize:14,marginTop:8}}>Klikni na + vyššie a vyber značku a model</div>
+        </div>}
+      </div>
+    ),
+
+    // ── History ──
+    history:(
+      <div style={{flex:1,overflowY:'auto',paddingBottom:100}}>
+        <div style={{padding:'16px 20px 20px'}}><div style={{fontSize:24,fontWeight:700,letterSpacing:-0.6}}>História diagnóz</div></div>
+        {history.length===0?<div style={{padding:'40px 20px',textAlign:'center',color:K.textMuted}}><I name="history" size={48} color={K.textSubtle}/><div style={{marginTop:16,fontSize:15,fontWeight:600,color:K.text}}>Žiadne diagnózy</div><div style={{marginTop:8,fontSize:14}}>Tu sa zobrazia výsledky po diagnostike</div></div>:
+        <div style={{padding:'0 16px',display:'flex',flexDirection:'column',gap:8}}>
+          {history.map(h=>{const sv=sevMap[h.top_fault_severity]||{};const d=new Date(h.created_at);return(
+            <div key={h.id} onClick={()=>{setResults(h.all_results);setScreen('results');}} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:18,padding:16,display:'flex',alignItems:'center',gap:14,cursor:'pointer'}}>
+              <div style={{width:44,height:44,borderRadius:12,background:K.accentSoft,display:'flex',alignItems:'center',justifyContent:'center',color:K.accent,flexShrink:0}}><I name="gauge" size={20}/></div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:15,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{h.top_fault_name}</div>
+                <div style={{fontSize:12,color:K.textMuted,marginTop:2}}>Skóre {h.top_fault_score} · {d.toLocaleDateString('sk')}</div>
+              </div>
+              {sv.c&&<div style={{width:10,height:10,borderRadius:5,background:sv.c,flexShrink:0}}/>}
+            </div>
+          );})}
+        </div>}
+      </div>
+    ),
+
+    // ── Profile ──
+    profile:(
+      <div style={{flex:1,overflowY:'auto',paddingBottom:100}}>
+        <div style={{padding:'16px 20px 20px'}}><div style={{fontSize:24,fontWeight:700,letterSpacing:-0.6}}>Profil</div></div>
+        <div style={{padding:'0 16px'}}>
+          <div style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:20,padding:20,display:'flex',alignItems:'center',gap:14}}>
+            <div style={{width:52,height:52,borderRadius:26,background:K.accent,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:20,fontWeight:700}}>{(user.email||'?')[0].toUpperCase()}</div>
+            <div><div style={{fontSize:16,fontWeight:600}}>{user.email}</div><div style={{fontSize:13,color:K.textMuted,marginTop:2}}>{cars.length} {cars.length===1?'auto':'autá'} · {history.length} {history.length===1?'diagnóza':'diagnóz'}</div></div>
+          </div>
+          <div style={{marginTop:16,background:K.card,border:`1px solid ${K.border}`,borderRadius:20,overflow:'hidden'}}>
+            <div style={{padding:'14px 16px',display:'flex',alignItems:'center',gap:12,borderBottom:`1px solid ${K.border}`}}><I name="car" size={18} color={K.textMuted}/><div style={{flex:1,fontSize:14}}>Moje autá</div><div style={{fontSize:13,color:K.textMuted}}>{cars.length}</div></div>
+            <div style={{padding:'14px 16px',display:'flex',alignItems:'center',gap:12,borderBottom:`1px solid ${K.border}`}}><I name="history" size={18} color={K.textMuted}/><div style={{flex:1,fontSize:14}}>Diagnózy</div><div style={{fontSize:13,color:K.textMuted}}>{history.length}/20</div></div>
+            <div style={{padding:'14px 16px',display:'flex',alignItems:'center',gap:12}}><I name="cpu" size={18} color={K.textMuted}/><div style={{flex:1,fontSize:14}}>Databáza motorov</div><div style={{fontSize:13,color:K.textMuted}}>27</div></div>
+          </div>
+          <button onClick={logout} style={{marginTop:20,width:'100%',height:48,borderRadius:24,border:`1px solid ${K.danger}33`,background:'transparent',color:K.danger,fontSize:15,fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}><I name="logout" size={18} color={K.danger}/>Odhlásiť sa</button>
+          <div style={{marginTop:24,textAlign:'center',fontSize:12,color:K.textSubtle}}>Klunk AI v0.1 · MVP</div>
+        </div>
+      </div>
+    ),
+  };
+
+  // ── Diagnose screen ──
+  function DiagnoseScreen(){
+    const[step,setStep]=useState('categories');const[cats,setCats]=useState([]);const[syms,setSyms]=useState([]);
+    const[sel,setSel]=useState([]);const[ans,setAns]=useState({});const[qi,setQi]=useState(0);const[msgs,setMsgs]=useState([]);
+    const ref=useRef(null);
+    useEffect(()=>{ref.current?.scrollIntoView({behavior:'smooth'});},[msgs,step,syms]);
+    useEffect(()=>{sbGet("symptom_categories","order=display_order",token).then(c=>{setCats(c||[]);setMsgs([{f:'ai',t:`Čo robí tvoje ${activeCar.make} ${activeCar.model} ${activeCar.generation}?`}]);});},[]);
+
+    async function pickCat(c){setMsgs(m=>[...m,{f:'u',t:c.name_sk},{f:'ai',t:'Vyber konkrétne príznaky. Môžeš vybrať viacero.'}]);
+      const it=await sbGet("symptom_category_items",`select=symptom_id,symptoms(id,slug,name_sk)&category_id=eq.${c.id}`,token);
+      setSyms((it||[]).map(i=>({v:i.symptoms.slug,l:i.symptoms.name_sk})));setStep('symptoms');}
+    function togSym(s){setSel(p=>p.includes(s.v)?p.filter(x=>x!==s.v):[...p,s.v]);}
+    function confirmSym(){const n=syms.filter(s=>sel.includes(s.v)).map(s=>s.l);setMsgs(m=>[...m,{f:'u',t:n.join(', ')},{f:'ai',t:'Ďakujem. Ešte pár otázok.'},{f:'ai',t:QS[0].q}]);setStep('questions');setQi(0);}
+    async function answerQ(a){const na={...ans,[QS[qi].id]:a};setAns(na);setMsgs(m=>[...m,{f:'u',t:a}]);
+      if(qi+1<QS.length){setQi(qi+1);setMsgs(m=>[...m,{f:'ai',t:QS[qi+1].q}]);}
+      else{setStep('loading');const r=await sbRPC("rank_faults_for_diagnosis",{p_engine_id:activeCar.engine_id,p_symptom_slugs:sel,p_answers:na},token);handleResults(r||[]);}}
+
+    const total=2+QS.length;const cur=step==='categories'?1:step==='symptoms'?2:step==='questions'?3+qi:total;
+    return(
+      <div style={{flex:1,display:'flex',flexDirection:'column'}}>
+        <div style={{padding:'16px 20px 12px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <button onClick={()=>setScreen(null)} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.text}}><I name="chevronLeft" size={18}/></button>
+          <div style={{fontSize:17,fontWeight:600,letterSpacing:-0.3}}>Nová diagnóza</div>
+          <button onClick={()=>setScreen(null)} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.textMuted}}><I name="x" size={18}/></button>
+        </div>
+        <div style={{padding:'0 20px 16px',display:'flex',gap:4}}>{Array.from({length:total}).map((_,i)=><div key={i} style={{flex:1,height:3,borderRadius:2,background:i<cur?K.accent:K.chip}}/>)}</div>
+        <div style={{flex:1,overflowY:'auto',padding:'0 16px 16px'}}>
+          {msgs.map((m,i)=><div key={i} style={{display:'flex',flexDirection:m.f==='ai'?'row':'row-reverse',gap:10,marginBottom:12,alignItems:'flex-end'}}>
+            {m.f==='ai'&&<div style={{width:28,height:28,borderRadius:8,background:K.accentSoft,display:'flex',alignItems:'center',justifyContent:'center',color:K.accent,flexShrink:0}}><I name="sparkle" size={14} sw={2.2}/></div>}
+            <div style={{maxWidth:'80%',padding:'10px 14px',fontSize:14,lineHeight:1.4,background:m.f==='ai'?K.chip:K.accent,color:m.f==='ai'?K.text:'#fff',borderRadius:18,borderBottomLeftRadius:m.f==='ai'?6:18,borderBottomRightRadius:m.f==='ai'?18:6}}>{m.t}</div>
+          </div>)}
+          {step==='categories'&&cats.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:8,paddingLeft:38,marginTop:4}}>{cats.map(c=><button key={c.slug} onClick={()=>pickCat(c)} style={{padding:'10px 16px',borderRadius:20,border:`1px solid ${K.borderStrong}`,background:K.chip,color:K.text,fontSize:14,fontWeight:500}}>{c.name_sk}</button>)}</div>}
+          {step==='symptoms'&&syms.length>0&&<div style={{paddingLeft:38,marginTop:4}}><div style={{display:'flex',flexWrap:'wrap',gap:8}}>{syms.map(s=>{const on=sel.includes(s.v);return<button key={s.v} onClick={()=>togSym(s)} style={{padding:'10px 16px',borderRadius:20,border:on?`2px solid ${K.accent}`:`1px solid ${K.borderStrong}`,background:on?K.accent:K.chip,color:on?'#fff':K.text,fontSize:14,fontWeight:500}}>{s.l}</button>})}</div>{sel.length>0&&<button onClick={confirmSym} style={{marginTop:16,width:'100%',padding:'14px',borderRadius:28,border:'none',background:K.accent,color:'#fff',fontSize:15,fontWeight:600}}>Pokračovať →</button>}</div>}
+          {step==='questions'&&<div style={{paddingLeft:38,marginTop:4}}><div style={{display:'flex',flexDirection:'column',gap:8}}>{QS[qi].opts.map(o=><button key={o} onClick={()=>answerQ(o)} style={{padding:'14px 16px',borderRadius:16,border:`1px solid ${K.borderStrong}`,background:'transparent',color:K.text,fontSize:14,fontWeight:500,textAlign:'left'}}>{o}</button>)}</div></div>}
+          {step==='loading'&&<div style={{textAlign:'center',padding:30,color:K.textMuted}}><div style={{fontSize:28}}>⚙️</div><div style={{marginTop:8,fontSize:14}}>Analyzujem...</div></div>}
+          <div ref={ref}/>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Results ──
+  function ResultsScreen(){
+    const top=results[0];if(!top)return null;
+    const sv=sevMap[top.severity]||{l:String(top.severity),c:K.textMuted,i:'?'};const df=diffMap[top.diy_difficulty]||'';const dl=diffLvl[top.diy_difficulty]||3;
+    const mx=Math.max(...results.map(r=>r.suspicion_score),1);
+    return(
+      <div style={{flex:1,overflowY:'auto',paddingBottom:40}}>
+        <div style={{padding:'16px 20px 12px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <button onClick={()=>setScreen(null)} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.text}}><I name="chevronLeft" size={18}/></button>
+          <div style={{fontSize:17,fontWeight:600,letterSpacing:-0.3}}>Diagnóza</div><div style={{width:36}}/>
+        </div>
+        <div style={{padding:'4px 16px 0'}}><div style={{borderRadius:22,padding:20,background:K.card,border:`1px solid ${K.border}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}><div style={{width:22,height:22,borderRadius:6,background:K.accentSoft,display:'flex',alignItems:'center',justifyContent:'center',color:K.accent}}><I name="sparkle" size={12} sw={2.2}/></div><div style={{fontSize:11,fontWeight:700,color:K.accent,letterSpacing:0.4,textTransform:'uppercase'}}>Klunk AI · Skóre {top.suspicion_score}</div></div>
+          <div style={{fontSize:24,fontWeight:700,letterSpacing:-0.6,lineHeight:1.1}}>{top.name_sk}</div>
+          <div style={{fontSize:14,color:K.textMuted,marginTop:6,lineHeight:1.45}}>{top.customer_description}</div>
+          <div style={{marginTop:14,display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:20,background:sv.c+'18',color:sv.c,fontSize:13,fontWeight:600}}>{sv.i} {sv.l}</div>
+          <div style={{marginTop:18,display:'flex',flexDirection:'column',gap:8}}>
+            {results.map((r,i)=><div key={r.fault_id} style={{display:'flex',alignItems:'center',gap:10}}>
+              <div style={{flex:1,fontSize:13,color:i===0?K.text:K.textMuted,fontWeight:i===0?600:500,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.name_sk}</div>
+              <div style={{width:80,height:4,borderRadius:2,background:K.chip,overflow:'hidden',flexShrink:0}}><div style={{height:'100%',width:`${(r.suspicion_score/mx)*100}%`,background:i===0?K.accent:K.textSubtle}}/></div>
+              <div style={{fontSize:12,color:K.textMuted,fontFamily:'monospace',width:30,textAlign:'right',flexShrink:0}}>{r.suspicion_score}</div>
+            </div>)}
+          </div>
+        </div></div>
+        <div style={{padding:'20px 20px 12px'}}><div style={{fontSize:13,fontWeight:600,color:K.textMuted,letterSpacing:0.3,textTransform:'uppercase'}}>Zvládneš to sám?</div></div>
+        <div style={{padding:'0 16px'}}><div style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:20,overflow:'hidden'}}>
+          <div style={{padding:16,display:'flex',alignItems:'flex-start',gap:14}}>
+            <div style={{width:52,height:52,borderRadius:14,background:K.accentSoft,display:'flex',alignItems:'center',justifyContent:'center',color:K.accent,flexShrink:0}}><I name="wrench" size={24}/></div>
+            <div style={{flex:1}}><div style={{display:'flex',alignItems:'center',gap:8}}><div style={{fontSize:16,fontWeight:700,letterSpacing:-0.3}}>{df}</div><DiffBars level={dl}/></div>
+              <div style={{fontSize:13,color:K.textMuted,marginTop:4,lineHeight:1.4}}>{dl<=2?'Zvládneš doma so základným náradím.':dl<=3?'Stredná náročnosť. Treba skúsenosti.':'Odporúčame servis.'}</div></div>
+          </div>
+          <div style={{height:1,background:K.border}}/>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr'}}>
+            {top.estimated_cost_diy!=null&&<div style={{padding:'12px 16px',borderRight:`1px solid ${K.border}`}}><div style={{fontSize:10,color:K.textMuted,fontWeight:600,letterSpacing:0.3,textTransform:'uppercase'}}>Svojpomocne</div><div style={{fontSize:18,fontWeight:700,marginTop:2}}>{top.estimated_cost_diy} €</div></div>}
+            {top.estimated_cost_shop!=null&&<div style={{padding:'12px 16px'}}><div style={{fontSize:10,color:K.textMuted,fontWeight:600,letterSpacing:0.3,textTransform:'uppercase'}}>V servise</div><div style={{fontSize:18,fontWeight:700,marginTop:2}}>{top.estimated_cost_shop} €</div></div>}
+          </div>
+        </div></div>
+        {results.length>1&&<><div style={{padding:'24px 20px 12px'}}><div style={{fontSize:13,fontWeight:600,color:K.textMuted,letterSpacing:0.3,textTransform:'uppercase'}}>Ďalšie možné príčiny</div></div>
+        <div style={{padding:'0 16px',display:'flex',flexDirection:'column',gap:8}}>{results.slice(1).map(r=>{const rs=sevMap[r.severity]||{};return(
+          <div key={r.fault_id} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:18,padding:16,display:'flex',alignItems:'center',gap:14}}>
+            <div style={{width:44,height:44,borderRadius:12,background:K.chip,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><I name="gauge" size={20}/></div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:15,fontWeight:600,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.name_sk}</div><div style={{fontSize:12,color:K.textMuted,marginTop:2}}>{rs.l||''} · {r.estimated_cost_shop?r.estimated_cost_shop+'€':''}</div></div>
+            <DiffBars level={diffLvl[r.diy_difficulty]||3}/>
+          </div>)})}</div></>}
+        <div style={{padding:'24px 16px 0'}}><button onClick={()=>setScreen(null)} style={{width:'100%',padding:16,borderRadius:28,border:`2px solid ${K.borderStrong}`,background:'transparent',color:K.text,fontSize:15,fontWeight:600}}>🔄 Nová diagnóza</button></div>
+      </div>
+    );
+  }
+
+  // ── Shops ──
+  function ShopsScreen(){return(
+    <div style={{flex:1,overflowY:'auto',paddingBottom:40}}>
+      <div style={{padding:'16px 20px 12px',display:'flex',alignItems:'center',gap:12}}>
+        <button onClick={()=>setScreen(null)} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.text}}><I name="chevronLeft" size={18}/></button>
+        <div style={{fontSize:20,fontWeight:700,letterSpacing:-0.5}}>Servisy v Košiciach</div>
+      </div>
+      <div style={{padding:'0 16px',display:'flex',flexDirection:'column',gap:10}}>
+        {SHOPS.map((s,i)=>(
+          <div key={i} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:20,padding:16}}>
+            <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+              <div style={{fontSize:16,fontWeight:700}}>{s.name}</div>
+              {s.tag&&<div style={{fontSize:10,fontWeight:700,color:K.accent,background:K.accentSoft,borderRadius:4,padding:'2px 6px'}}>{s.tag}</div>}
+            </div>
+            <div style={{fontSize:13,color:K.textMuted}}>{s.addr}</div>
+            <div style={{fontSize:12,color:K.textMuted,display:'flex',gap:6,marginTop:6,alignItems:'center'}}>
+              <span style={{color:K.warning}}>★ {s.rating}</span><span style={{opacity:0.5}}>·</span><span>{s.reviews} recenzií</span><span style={{opacity:0.5}}>·</span><span>{s.dist}</span>
+            </div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:12}}>
+              <div><div style={{fontSize:14,fontWeight:700}}>{s.price} · <span style={{color:K.accent}}>{s.time}</span></div></div>
+              <button style={{padding:'8px 16px',borderRadius:20,border:'none',background:K.accent,color:'#fff',fontSize:13,fontWeight:600}}>Kontakt</button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );}
+
+  // ── OBD ──
+  function OBDScreen(){
+    const[code,setCode]=useState('');const[result,setResult]=useState(null);const[searching,setSearching]=useState(false);
+    async function search(){if(!code)return;setSearching(true);
+      const dtcs=await sbGet("fault_dtcs",`select=*,faults(*)&dtc_code=eq.${code.toUpperCase()}`,token);
+      setResult(dtcs&&dtcs.length>0?dtcs:null);setSearching(false);
+    }
+    return(
+      <div style={{flex:1,overflowY:'auto',paddingBottom:40}}>
+        <div style={{padding:'16px 20px 12px',display:'flex',alignItems:'center',gap:12}}>
+          <button onClick={()=>setScreen(null)} style={{width:36,height:36,borderRadius:18,background:K.chip,border:'none',display:'flex',alignItems:'center',justifyContent:'center',color:K.text}}><I name="chevronLeft" size={18}/></button>
+          <div style={{fontSize:20,fontWeight:700,letterSpacing:-0.5}}>OBD kód</div>
+        </div>
+        <div style={{padding:'0 16px'}}>
+          <div style={{fontSize:14,color:K.textMuted,marginBottom:16}}>Zadaj chybový kód z OBD čítačky a Klunk ti povie, čo znamená.</div>
+          <div style={{display:'flex',gap:8}}>
+            <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="napr. P0401" onKeyDown={e=>e.key==='Enter'&&search()} style={{flex:1,height:48,borderRadius:14,border:`1px solid ${K.borderStrong}`,background:K.chip,color:K.text,padding:'0 16px',fontSize:16,fontFamily:'monospace',outline:'none',letterSpacing:1}}/>
+            <button onClick={search} disabled={searching} style={{height:48,padding:'0 20px',borderRadius:14,border:'none',background:K.accent,color:'#fff',fontSize:15,fontWeight:600}}>{searching?'...':'Hľadať'}</button>
+          </div>
+          {result&&result.length>0&&<div style={{marginTop:20,display:'flex',flexDirection:'column',gap:10}}>
+            {result.map((d,i)=>{const f=d.faults;const sv=sevMap[f.severity]||{};return(
+              <div key={i} style={{background:K.card,border:`1px solid ${K.border}`,borderRadius:18,padding:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:K.accent,letterSpacing:0.4,textTransform:'uppercase',marginBottom:4}}>Kód {d.dtc_code} · váha {d.weight}/10</div>
+                <div style={{fontSize:17,fontWeight:700}}>{f.name_sk}</div>
+                <div style={{fontSize:13,color:K.textMuted,marginTop:4,lineHeight:1.4}}>{f.customer_description}</div>
+                {sv.l&&<div style={{marginTop:10,display:'inline-flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:16,background:(sv.c||'')+'18',color:sv.c,fontSize:12,fontWeight:600}}>{sv.i} {sv.l}</div>}
+              </div>
+            );})}
+          </div>}
+          {result===null&&code&&!searching&&<div style={{marginTop:20,padding:20,background:K.card,border:`1px solid ${K.border}`,borderRadius:18,textAlign:'center',color:K.textMuted}}>Kód {code} sa nenašiel v databáze.</div>}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render ──
+  return(
+    <div style={{height:'100%',maxWidth:430,margin:'0 auto',display:'flex',flexDirection:'column',position:'relative',overflow:'hidden',background:K.bg}}>
+      {screen==='diagnose'&&activeCar?<DiagnoseScreen/>:
+       screen==='results'?<ResultsScreen/>:
+       screen==='shops'?<ShopsScreen/>:
+       screen==='obd'?<OBDScreen/>:
+       tabContent[tab]}
+      {screen==='addcar'&&<AddCarModal onClose={()=>setScreen(null)} onAdd={addCar} token={token}/>}
+      {!screen&&<div style={{position:'fixed',bottom:0,left:0,right:0,maxWidth:430,margin:'0 auto',background:'rgba(11,11,12,0.88)',backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',borderTop:`1px solid ${K.border}`,padding:'8px 12px 28px',display:'flex',justifyContent:'space-around',zIndex:30}}>
+        {[{k:'home',icon:'home',l:'Domov'},{k:'diagnose',icon:'sparkle',l:'Diagnóza'},{k:'history',icon:'history',l:'História'},{k:'profile',icon:'user',l:'Profil'}].map(t=>{
+          const on=tab===t.k;
+          return <button key={t.k} onClick={()=>{if(t.k==='diagnose'&&activeCar){setScreen('diagnose');}else{setTab(t.k);setScreen(null);}}} style={{background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:4,color:on?K.accent:K.textMuted}}>
+            <I name={t.icon} size={22} sw={on?2:1.75}/><span style={{fontSize:10,fontWeight:on?700:500,letterSpacing:0.1}}>{t.l}</span>
+          </button>;
+        })}
+      </div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<AuthProvider><App/></AuthProvider>);
+</script>
+</body>
+</html>
